@@ -1,0 +1,175 @@
+---
+title: "Metabolic profiling of prostate cancer biopsies using HR-MAS"
+author: "Jinny Sun"
+date: "1/29/2018"
+output: 
+  html_document:
+    toc: true
+---
+
+#Introduction
+Prostate cancer is the most commonly diagnosed non-cutaneous cancer in men and the second leading cause of cancer death. Due to over-diagnosis and over-treatment of indolent low-risk disease, active surveillance (AS) involving serial measurements of serum prostate-specific antigen (PSA) and biopsies as well as multiparametric MRI has been implemented in the clinic to monitor disease progression and reduce rates of over-treatment. A pressing need in the clinical management of patients with prostate cancer at the time of diagnosis is an accurate method for distinguishing aggressive, potentially lethal prostate cancer from indolent disease in individual patients in order to assess whether active surveillance is appropriate or aggressive treatment is needed. 
+
+The goal of this analysis is to identify metabolic biomarkers of prostate cancer using 1D 1H HR-MAS spectroscopy of biopsy tissues. This analysis has significant clinical impact by informing doctors which patients should remain under active surveillance or undergo treatment.
+
+
+# Experiment Details
+1D 1H CPMG spectra was acquired from fresh prostate cancer biopsies using high-resolution magic angle spinning (HR-MAS) NMR. After the experiment, biopsies were formalin-fixed and paraffin embedded for pathologic analysis. Experimental methods can be found in the following publications: 
+
+Swanson, Mark G., et al. "Proton HR‐MAS spectroscopy and quantitative pathologic analysis of MRI/3D‐MRSI‐targeted postsurgical prostate tissues." Magnetic Resonance in Medicine: An Official Journal of the International Society for Magnetic Resonance in Medicine 50.5 (2003): 944-954. [link](https://www.ncbi.nlm.nih.gov/pubmed/14587005)
+
+Tessem, May-Britt et al. “Evaluation of lactate and alanine as metabolic biomarkers of prostate cancer using 1H HR-MAS spectroscopy of biopsy tissues.” Magnetic resonance in medicine vol. 60,3 (2008): 510-6. [link](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2613807/)
+
+# Analysis - Benign vs Cancer
+
+For this analysis, we will identify metabolic biomarkers of prostate cancer by comparing the metabolic profile between benign and cancer in patients that have received no treatment. The aggressiveness of prostate cancer is determined by a Gleason grade, which grades the primary and secondary lesion. The two scores are then added together to A Gleason score. A Gleason score less than 6 is considered "benign", 6 is considered "low grade cancer", 7 is considered "imtermediate grade", and a score of 8 and above is considered "high grade". Clinically, patients with a Gleason score of 6 or under should remain under active surveillance, and patients with a Gleason score of 7 or higher should undergo treatment.
+
+## Load data
+The data is presented in csv format. 
+```{r}
+data = read.csv("ProstateHrmas.csv", header = T, stringsAsFactors = FALSE, fill = T)
+```
+
+
+## Load libraries
+Here are the libraries required for this analysis.
+```{r}
+library(tidyverse)
+library(reshape2)
+library(RColorBrewer)
+```
+
+## Clean data
+
+Let's learn more about this dataset using `dim`, `head, and `sapply`.
+```{r}
+dim(data)
+head(data)
+sapply(data, class)
+```
+
+This dataset of consists of 287 tissue samples (biopsies, post-surgical tissues, and primary cell culture) and 32 features, including information on the patient history, 6 parameters pertaining to HR-MAS spectroscopy, histopathology, and 19 metabolite concentrations.  Here, we are interested in some of the features pertaining to patient history, histopathology, and metabolite concentrations. 
+
+This analysis will focus on comparing the metabolite concentrations of fresh tissue samples, namely biopsies (BY) and post-surgical tissues (P), from patients who have not received treatment. Use `filter` to remove cell culture (CC) tissue samples.
+```{r}
+data.nt <- filter (data, treatment_type == "No Treatment", !grepl("*CC",ID))
+dim(data.nt)
+```
+Now there are a total of 200 fresh tissue samples from patients that have received no treatment.
+
+To get an idea of the overall distribution of metabolite concentrations, let's plot the metabolite concentrations for all samples. To plot all of the metabolite concentrations in one graph, we will first use `melt` to condense the data matrix into a single column:
+```{r}
+data.nt.melt <- melt(data.nt)
+dim(data.nt.melt)
+```
+
+Then, use `grep` to select the columns related to metabolite concentrations.
+```{r}
+data.nt.metabolites <- data.nt.melt[grep("*1D", data.nt.melt$variable), ] #select columns pertaining to metabolite concentrations
+head(data.nt.metabolites)
+```
+
+
+Now for each metabolite, let's visualize the data using `ggplot`. Plot a boxplot overlayed with a scatterplot of all of the metabolite concentrations. Data points will be colored based on the gleason score (ie. benign vs cancer) and labeled with individual biospy IDs. This will help us identify outliers. Notice that that the outlier points are omitted in the boxplot to avoid duplicating those points when overlaying the scatterplot.
+```{r}
+metabolites.plot <- ggplot(data.nt.metabolites, aes (x = variable, y = log(value)))+
+  geom_boxplot(, outlier.shape = NA)+
+  geom_jitter( aes(color = gleason_grade), size = 1)+
+  geom_text(aes(label = ID), size = 2)
+
+metabolites.plot + ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
+  xlab("Metabolites") + ylab("Metabolite concentrations (mM/mg tissue)")
+```
+Wow, looks like there are some samples, namely P51 and P125, that have outliers in several different metabolites, hinting that this is due to experimental error. We will have to remove these from the dataset before any statistical tests are performed. The outlier samples identified in the previous graph are removed using the following code:
+```{r}
+data.nt.clean <- filter (data.nt, !grepl("P51",ID), !grepl("P125",ID))
+```
+
+Now that we've cleaned up the data, let's replot it to check that everything looks good.
+```{r}
+#melt matrix and select columns related to metabolite concentrations
+data.nt.clean.melt <- melt(data.nt.clean)
+data.nt.clean.metabolites <- data.nt.clean.melt[grep("*1D", data.nt.clean.melt$variable), ]
+
+#plot
+metabolites.plot <- ggplot(data.nt.clean.metabolites, aes (x = variable, y = value))+
+  geom_boxplot(, outlier.shape = NA)+
+  geom_jitter( aes(color = gleason_grade), size = 1)+
+  geom_text(aes(label = ID), size = 2)
+  
+metabolites.plot + ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
+  xlab("Metabolites") + ylab("Metabolite concentrations (mM/mg tissue)")
+```
+
+Now there are no samples that are obvious outliers.
+
+For this analysis, we want to compare biopsy tissues that are benign (Gleason score < 6) and cancerous (Gleason score ≥ 6). For cancerous tissues, we only want to include tissues with > 5% cancer. To do this, the feature pertaining to %cancer needs to be converted from 'character' to 'numeric'.
+```{r}
+#converting cancer variable from character to numeric
+sapply(data.nt, class)
+data.nt.clean$cancer <- as.numeric(gsub("[\\%,]", "", data.nt.clean$cancer))
+sapply(data.nt.clean, class)
+
+#filtering for cancer tissues
+cancer <- filter(data.nt.clean, gleason_grade != "Benign", cancer >= 5)
+cancer.melt <-melt(cancer)
+cancer.metabolites <- cancer.melt[grep("*1D", cancer.melt$variable), ]
+```
+
+Here is the data for benign tissues.
+```{r}
+benign <- filter(data.nt.clean, gleason_grade == "Benign")
+benign.melt <-melt(benign)
+benign.metabolites <- benign.melt[grep("*1D", benign.melt$variable), ]
+```
+
+Here are the average values of each feature for benign prostate cancer biopsies.
+```{r}
+benign.melt %>% group_by(variable) %>% summarize (mean_signal_value = mean(value, na.rm = TRUE))
+```
+
+And a average summary of cancer samples
+```{r}
+cancer.melt %>% group_by(variable) %>% summarize (mean_signal_value = mean(value, na.rm = TRUE))
+```
+
+
+## Statistical Analysis
+### Regression
+
+```{r}
+
+```
+
+
+### Principal Components Analysis
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
