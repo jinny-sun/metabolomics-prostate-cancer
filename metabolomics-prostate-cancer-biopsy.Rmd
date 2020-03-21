@@ -37,6 +37,11 @@ Here are the libraries required for this analysis.
 library(tidyverse)
 library(reshape2)
 library(RColorBrewer)
+
+library(lattice)
+library(corrplot)
+library(class)
+library(boot)
 ```
 
 ## Clean data
@@ -73,12 +78,14 @@ head(data.nt.metabolites)
 Now for each metabolite, let's visualize the data using `ggplot`. Plot a boxplot overlayed with a scatterplot of all of the metabolite concentrations. Data points will be colored based on the gleason score (ie. benign vs cancer) and labeled with individual biospy IDs. This will help us identify outliers. Notice that that the outlier points are omitted in the boxplot to avoid duplicating those points when overlaying the scatterplot.
 ```{r}
 metabolites.plot <- ggplot(data.nt.metabolites, aes (x = variable, y = log(value)))+
-  geom_boxplot(, outlier.shape = NA)+
-  geom_jitter( aes(color = gleason_grade), size = 1)+
+  geom_boxplot( , outlier.shape = NA)+
+  geom_jitter(aes(color = gleason_grade), size = 1)+
   geom_text(aes(label = ID), size = 2)
 
-metabolites.plot + ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
-  xlab("Metabolites") + ylab("Metabolite concentrations (mM/mg tissue)")
+metabolites.plot + 
+  ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
+  xlab("Metabolites") + 
+  ylab("Metabolite concentrations (mM/mg tissue)")
 ```
 Wow, looks like there are some samples, namely P51 and P125, that have outliers in several different metabolites, hinting that this is due to experimental error. We will have to remove these from the dataset before any statistical tests are performed. The outlier samples identified in the previous graph are removed using the following code:
 ```{r}
@@ -93,18 +100,66 @@ data.nt.clean.metabolites <- data.nt.clean.melt[grep("*1D", data.nt.clean.melt$v
 
 #plot
 metabolites.plot <- ggplot(data.nt.clean.metabolites, aes (x = variable, y = value))+
-  geom_boxplot(, outlier.shape = NA)+
-  geom_jitter( aes(color = gleason_grade), size = 1)+
+  geom_boxplot( , outlier.shape = NA)+
+  geom_jitter(aes(color = gleason_grade), size = 1)+
   geom_text(aes(label = ID), size = 2)
   
-metabolites.plot + ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
-  xlab("Metabolites") + ylab("Metabolite concentrations (mM/mg tissue)")
+metabolites.plot + 
+  ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
+  xlab("Metabolites") + 
+  ylab("Metabolite concentrations (mM/mg tissue)")
 ```
 
 Now there are no samples that are obvious outliers.
 
-For this analysis, we want to compare biopsy tissues that are benign (Gleason score < 6) and cancerous (Gleason score ≥ 6). For cancerous tissues, we only want to include tissues with > 5% cancer. To do this, the feature pertaining to %cancer needs to be converted from 'character' to 'numeric'.
+For this analysis, we want to compare biopsy tissues that are benign (Gleason score < 6) and cancerous (Gleason score ≥ 6). Let's plot a histogram of the samples, sorted by gleason grade, to understand the distribution of the data.
 ```{r}
+hist <- ggplot(data.frame(data.nt.clean), aes(x=gleason_grade)) +
+  geom_bar()
+
+hist + ggtitle("Histogram of Predictor Variable") +
+  xlab("Benign vs. malignant prostate cancer") + ylab("Sample Size")
+```
+
+From the boxplot, there are two groups labeled "G4+3", indicating that there might be whitespace in one of the labels. We will use `str_trim` to remove the whitespace.
+```{r}
+data.nt.clean$gleason_grade <- str_trim(data.nt.clean$gleason_grade, side = c("both"))
+
+#plot
+hist <- ggplot(data.frame(data.nt.clean), aes(x=gleason_grade)) +
+  geom_bar() +
+  geom_text(stat = 'count', aes(label = ..count..), vjust=-1)
+
+hist + 
+  ggtitle("Histogram of Predictor Variable") +
+  xlab("Benign vs. malignant prostate cancer") + 
+  ylab("Sample Size") +
+  ylim(0, 150)
+
+```
+The majority of samples (~70%) are benign, 17% of samples have a Gleason grade of 3+3 and are considered "low grade" tumors, and the other ~13% of samples are considered malignant or "high grade" tumors. Since we are only interested in comparing benign versus malignant tumors, let's combine all of the low grade and high grade tumors as "Cancer".
+```{r}
+data.nt.clean$gleason_grade
+data.nt.clean$gleason_grade %>%
+  str_replace_all(c("G3+3", "G3+4", "G4+3", "G4+4"), c("Cancer", "Cancer", "Cancer", "Cancer"))
+
+# version 1
+newgleason <- data.nt.clean$gleason_grade
+newgleason[grep("\\+", newgleason)] <- "Cancer"
+data.nt.clean$newgleason <- newgleason
+
+# version 2
+data.nt.clean <- data.nt.clean %>% mutate (newgleason = str_replace_all(gleason_grade, "G3\\+3|G3\\+4|G4\\+3|G4\\+4", "Cancer"))
+data.nt.clean$newgleason
+
+```
+
+
+
+For cancerous tissues, we only want to include tissues with > 5% cancer. To do this, the feature pertaining to %cancer needs to be converted from 'character' to 'numeric'.
+```{r}
+
+
 #converting cancer variable from character to numeric
 sapply(data.nt, class)
 data.nt.clean$cancer <- as.numeric(gsub("[\\%,]", "", data.nt.clean$cancer))
@@ -115,6 +170,7 @@ cancer <- filter(data.nt.clean, gleason_grade != "Benign", cancer >= 5)
 cancer.melt <-melt(cancer)
 cancer.metabolites <- cancer.melt[grep("*1D", cancer.melt$variable), ]
 ```
+
 
 Here is the data for benign tissues.
 ```{r}
@@ -135,18 +191,9 @@ cancer.melt %>% group_by(variable) %>% summarize (mean_signal_value = mean(value
 
 
 ## Statistical Analysis
-### Regression
-
-```{r}
-
-```
+### Principal Components Regression
 
 
-### Principal Components Analysis
-
-```{r}
-
-```
 
 
 ```{r}
@@ -154,13 +201,132 @@ cancer.melt %>% group_by(variable) %>% summarize (mean_signal_value = mean(value
 ```
 
 
+### k-Nearest Neighbors
+We will perform classification and prediction of benign vs. malignant prostate cancer using k-Nearest Neighbors (k-NN). This is a supervised algorithm which requires a labeled test set.  
+
+First, we will split our dataset into train and test sets using `sample`
 ```{r}
+### Reading in data and separating training set from testing set ###
+
+#Set aside a random sample for VERIFICATION DATA.
+testvector = sample (1:dim(data.nt.clean)[1], 198, replace = FALSE)
+
+#Record which indicies were used for test data.
+write.csv (testvector, "testvector.txt", row.names = F)
+
+#Extract the class of the tumor (benign vs. malignant), label as Ytest and Ytrain.
+Ytest = data.nt.clean[testvector, 2]
+Ytrain = data.nt.clean[-testvector, 2]
+
+#Take the X-values.
+Xtest = data.nt.clean[testvector, -1]
+Xtrain = data.nt.clean[-testvector, -1]
+
+#Write all to csv files.
+write.csv( Xtest, "Xteststand.txt", row.names = F)
+write.csv( Xtrain, "Xtrainstand.txt", row.names = F)
+write.csv( Ytest, "Ytest.txt", row.names = F)
+write.csv( Ytrain, "Ytrain.txt", row.names = F)
 
 ```
 
-
+Read in classification and cross-validation functions for k-NN 
 ```{r}
+knnk <- function(klist,Xtrain,Ytrain,Xtest) {
+  # k-nearest neighbors classification
+  # 
+  # klist is a list of values of k to be tested
+  # Xtrain, Ytrain: the training set
+  # Xtest: the test set
+  # Output: a matrix of predictions for the test set (one column for each k in klist)	
+  
+  # Number of training and test examples
+  n.train <- nrow(Xtrain)
+  n.test <- nrow(Xtest)
+  
+  # Matrix to store predictions
+  p.test <- matrix(NA, n.test, length(klist))
+  
+  # Vector to store the distances of a point to the training points
+  dsq <- numeric(n.train)
+  
+  # Loop on the test instances
+  for (tst in 1:n.test)
+  {
+    # Compute distances to training instances
+    for (trn in 1:n.train)
+    {
+      dsq[trn] <- sum((Xtrain[trn,] - Xtest[tst,])^2)
+    }
+    
+    # Sort distances from smallest to largest
+    ord <- order(dsq)
+    
+    # Make prediction using majority vote of the k nearest neighbors
+    for (ik in 1:length(klist)) {
+      p.test[tst,ik] <- mean(Ytrain[ord[1:klist[ik]]])
+      p.test[p.test < 3] <- 2
+      p.test[p.test > 3] <- 4
+    }
+  }
+  
+  # Return the matrix of predictions
+  invisible(p.test)
+}
 
+knnk.cv <- function(klist,Xtrain,Ytrain,nfolds) {
+  # Cross-validation for kNN
+  #
+  # Perform nfolds-cross validation of kNN, for the values of k in klist
+  
+  # Number of instances
+  n.train <- nrow(Xtrain)
+  
+  # Matrix to store predictions
+  p.cv <- matrix(NA, n.train, length(klist))
+  
+  # Prepare the folds
+  s <- split(sample(n.train),rep(1:nfolds,length=n.train))
+  
+  # Cross-validation
+  for (i in seq(nfolds)) {
+    p.cv[s[[i]],] <- knnk(klist,Xtrain[-s[[i]],], Ytrain[-s[[i]]], Xtrain[s[[i]],])
+  }
+  
+  # Return matrix of CV predictions
+  invisible(p.cv)
+}
+```
+
+Let's perform a 10-Fold Cross Validation using k-NN
+```{r}
+#Create training and test sets
+Xtrain = Xtrain[,-c(1)]
+Xtest = Xtest[,-c(1)]
+
+#Read in the data.
+Xtrain = data.matrix(read.table ("Xtrainstand.txt", header = T, sep = ","))
+Ytrain = data.matrix(read.table ("Ytrain.txt", header = T, sep = ","))[,1]
+Xtest = data.matrix(read.table ("Xteststand.txt", header = T, sep = ","))
+Ytest = data.matrix(read.table ("Ytest.txt", header = T, sep = ","))[,1]
+
+#Make predictions by kNN
+klist = c(1:9) # we test all values of k
+nfolds = 10 # we make 10-fold cross-validation
+predicted.cv = knnk.cv(klist,Xtrain,Ytrain,nfolds)
+
+#Compute misclassification error as a function of k
+MCerror = rep(NA,ncol(predicted.cv))
+for (i in 1:ncol(predicted.cv)) {
+  MCerror[i] <- 1-sum(predicted.cv[,i]==Ytrain)/length(Ytrain)
+}
+MCerror
+
+# Plot misclassification error as a function of k
+plot(klist, MCerror, main="Misclassification Error Rate for each k", xlab="k", ylab="Misclassification Error")
+
+# Use k with lowest error; k=3 had lowest misclassification error
+final.k = 3
 ```
 
 
