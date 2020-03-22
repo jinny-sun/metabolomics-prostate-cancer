@@ -3,9 +3,8 @@ title: "Metabolic profiling of prostate cancer biopsies using HR-MAS"
 author: "Jinny Sun"
 date: "1/29/2018"
 output: 
-  html_document:
+  github_document:
     toc: true
-    df_print: paged
 ---
 
 # Introduction
@@ -54,14 +53,14 @@ library(boot)
 This dataset of consists of 287 tissue samples (biopsies, post-surgical tissues, and primary cell culture) and 32 features, including information on the patient history, 6 parameters pertaining to HR-MAS spectroscopy, histopathology, and 19 metabolite concentrations.  Here, we are interested in some of the features pertaining to patient history, histopathology, and metabolite concentrations. Features that we are not interested in are removed using `select`. This analysis will focus on comparing the metabolite concentrations of fresh tissue samples, namely biopsies (BY) and post-surgical tissues (P), from patients who have not received treatment. Use `filter` to remove cell culture (CC) tissue samples.
 ```{r}
 dim(data)
-data
+head(data)
 
 data.2 <- select(data, -(treatment_type:stroma_normal))
-data.2
+head(data.2)
 
 data.nt <- filter (data.2, treatment == "None", !grepl("*CC",ID))
 dim(data.nt)
-data.nt
+head(data.nt)
 ```
 
 
