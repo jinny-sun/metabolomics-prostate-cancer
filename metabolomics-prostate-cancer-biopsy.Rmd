@@ -5,26 +5,30 @@ date: "1/29/2018"
 output: 
   html_document:
     toc: true
+    df_print: paged
 ---
 
-#Introduction
+# Introduction
+
 Prostate cancer is the most commonly diagnosed non-cutaneous cancer in men and the second leading cause of cancer death. Due to over-diagnosis and over-treatment of indolent low-risk disease, active surveillance (AS) involving serial measurements of serum prostate-specific antigen (PSA) and biopsies as well as multiparametric MRI has been implemented in the clinic to monitor disease progression and reduce rates of over-treatment. A pressing need in the clinical management of patients with prostate cancer at the time of diagnosis is an accurate method for distinguishing aggressive, potentially lethal prostate cancer from indolent disease in individual patients in order to assess whether active surveillance is appropriate or aggressive treatment is needed. 
 
 The goal of this analysis is to identify metabolic biomarkers of prostate cancer using 1D 1H HR-MAS spectroscopy of biopsy tissues. This analysis has significant clinical impact by informing doctors which patients should remain under active surveillance or undergo treatment.
 
 
 # Experiment Details
+
 1D 1H CPMG spectra was acquired from fresh prostate cancer biopsies using high-resolution magic angle spinning (HR-MAS) NMR. After the experiment, biopsies were formalin-fixed and paraffin embedded for pathologic analysis. Experimental methods can be found in the following publications: 
 
-Swanson, Mark G., et al. "Proton HR‐MAS spectroscopy and quantitative pathologic analysis of MRI/3D‐MRSI‐targeted postsurgical prostate tissues." Magnetic Resonance in Medicine: An Official Journal of the International Society for Magnetic Resonance in Medicine 50.5 (2003): 944-954. [link](https://www.ncbi.nlm.nih.gov/pubmed/14587005)
+Swanson, Mark G., et al. "Proton HR‐MAS spectroscopy and quantitative pathologic analysis of MRI/3D‐MRSI‐targeted postsurgical prostate tissues." Magnetic Resonance in Medicine: An Official Journal of the International Society for Magnetic Resonance in Medicine 50.5 (2003): 944-954. [Pubmed](https://www.ncbi.nlm.nih.gov/pubmed/14587005)
 
-Tessem, May-Britt et al. “Evaluation of lactate and alanine as metabolic biomarkers of prostate cancer using 1H HR-MAS spectroscopy of biopsy tissues.” Magnetic resonance in medicine vol. 60,3 (2008): 510-6. [link](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2613807/)
+Tessem, May-Britt et al. “Evaluation of lactate and alanine as metabolic biomarkers of prostate cancer using 1H HR-MAS spectroscopy of biopsy tissues.” Magnetic resonance in medicine vol. 60,3 (2008): 510-6. [Pubmed](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2613807/)
 
 # Analysis - Benign vs Cancer
 
 For this analysis, we will identify metabolic biomarkers of prostate cancer by comparing the metabolic profile between benign and cancer in patients that have received no treatment. The aggressiveness of prostate cancer is determined by a Gleason grade, which grades the primary and secondary lesion. The two scores are then added together to A Gleason score. A Gleason score less than 6 is considered "benign", 6 is considered "low grade cancer", 7 is considered "imtermediate grade", and a score of 8 and above is considered "high grade". Clinically, patients with a Gleason score of 6 or under should remain under active surveillance, and patients with a Gleason score of 7 or higher should undergo treatment.
 
 ## Load data
+
 The data is presented in csv format. 
 ```{r}
 data = read.csv("ProstateHrmas.csv", header = T, stringsAsFactors = FALSE, fill = T)
@@ -32,7 +36,8 @@ data = read.csv("ProstateHrmas.csv", header = T, stringsAsFactors = FALSE, fill 
 
 
 ## Load libraries
-Here are the libraries required for this analysis.
+
+Load the libraries required for this analysis.
 ```{r}
 library(tidyverse)
 library(reshape2)
@@ -46,87 +51,98 @@ library(boot)
 
 ## Clean data
 
-Let's learn more about this dataset using `dim`, `head, and `sapply`.
+This dataset of consists of 287 tissue samples (biopsies, post-surgical tissues, and primary cell culture) and 32 features, including information on the patient history, 6 parameters pertaining to HR-MAS spectroscopy, histopathology, and 19 metabolite concentrations.  Here, we are interested in some of the features pertaining to patient history, histopathology, and metabolite concentrations. Features that we are not interested in are removed using `select`. This analysis will focus on comparing the metabolite concentrations of fresh tissue samples, namely biopsies (BY) and post-surgical tissues (P), from patients who have not received treatment. Use `filter` to remove cell culture (CC) tissue samples.
 ```{r}
 dim(data)
-head(data)
-sapply(data, class)
-```
+data
 
-This dataset of consists of 287 tissue samples (biopsies, post-surgical tissues, and primary cell culture) and 32 features, including information on the patient history, 6 parameters pertaining to HR-MAS spectroscopy, histopathology, and 19 metabolite concentrations.  Here, we are interested in some of the features pertaining to patient history, histopathology, and metabolite concentrations. 
+data.2 <- select(data, -(treatment_type:cancer))
+data.2
 
-This analysis will focus on comparing the metabolite concentrations of fresh tissue samples, namely biopsies (BY) and post-surgical tissues (P), from patients who have not received treatment. Use `filter` to remove cell culture (CC) tissue samples.
-```{r}
-data.nt <- filter (data, treatment_type == "No Treatment", !grepl("*CC",ID))
+data.nt <- filter (data.2, treatment == "None", !grepl("*CC",ID))
 dim(data.nt)
+data.nt
 ```
-Now there are a total of 200 fresh tissue samples from patients that have received no treatment.
 
-To get an idea of the overall distribution of metabolite concentrations, let's plot the metabolite concentrations for all samples. To plot all of the metabolite concentrations in one graph, we will first use `melt` to condense the data matrix into a single column:
+
+To get an idea of the overall distribution of metabolite concentrations, let's plot the metabolite concentrations for all samples. To plot all of the metabolite concentrations in one graph, we will first use `melt` to condense the data matrix into a single column. Then, use `grep` to select the columns related to metabolite concentrations. To visualize the data, use `ggplot` to create a boxplot overlayed with a scatterplot of all of the metabolite concentrations. To identify outliers, data points are colored based on the gleason score (ie. benign vs cancer) and labeled with individual biospy IDs.
 ```{r}
+# Melt matrix to plot using ggplot
 data.nt.melt <- melt(data.nt)
-dim(data.nt.melt)
-```
+data.nt.metabolites <- data.nt.melt[grep("*1D", data.nt.melt$variable), ]
 
-Then, use `grep` to select the columns related to metabolite concentrations.
-```{r}
-data.nt.metabolites <- data.nt.melt[grep("*1D", data.nt.melt$variable), ] #select columns pertaining to metabolite concentrations
-head(data.nt.metabolites)
-```
-
-
-Now for each metabolite, let's visualize the data using `ggplot`. Plot a boxplot overlayed with a scatterplot of all of the metabolite concentrations. Data points will be colored based on the gleason score (ie. benign vs cancer) and labeled with individual biospy IDs. This will help us identify outliers. Notice that that the outlier points are omitted in the boxplot to avoid duplicating those points when overlaying the scatterplot.
-```{r}
+# Plot
 metabolites.plot <- ggplot(data.nt.metabolites, aes (x = variable, y = log(value)))+
   geom_boxplot( , outlier.shape = NA)+
-  geom_jitter(aes(color = gleason_grade), size = 1)+
-  geom_text(aes(label = ID), size = 2)
-
-metabolites.plot + 
+  geom_jitter(aes(color = gleason_grade), size = 1)+ 
+  theme (axis.text.x = element_text(angle = 45, hjust = 1)) +
   ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
   xlab("Metabolites") + 
-  ylab("Metabolite concentrations (mM/mg tissue)")
-```
-Wow, looks like there are some samples, namely P51 and P125, that have outliers in several different metabolites, hinting that this is due to experimental error. We will have to remove these from the dataset before any statistical tests are performed. The outlier samples identified in the previous graph are removed using the following code:
-```{r}
-data.nt.clean <- filter (data.nt, !grepl("P51",ID), !grepl("P125",ID))
+  ylab("log(Metabolite concentrations (mM/mg tissue))")
+
+# plot without sample labels
+metabolites.plot
+# plot with sample labels
+metabolites.plot +
+  geom_text(aes(label = ID), size = 2) 
 ```
 
-Now that we've cleaned up the data, let's replot it to check that everything looks good.
+
+There are two samples, P51 and P125, that have outliers in several different metabolites, hinting that this is due to experimental error. We will have to remove these from the dataset before any statistical tests are performed. The outlier samples identified in the previous graph are removed using the following code:
 ```{r}
+data.nt.c <- filter (data.nt, !grepl("P51",ID), !grepl("P125",ID))
+```
+
+
+There are also several NA values throughout the dataset. A majority of samples have NA values in Cr1D and Glutathione1D. Let's remove these variables using `select`. There are also a few metabolite variables with three NA values. Let's identify the samples with these NA values, and remove them using `filter`. Now there are no obvious outliers.
+```{r}
+# Count the number of NA values per column
+na_count <-sapply(data.nt.c, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count
+
+# Remove columns by name using dplyr
+data.nt.c <- select(data.nt.c, -PCr1D, -Glutathione1D)
+
+# Identify samples with NA values
+data.nt.c[is.na(data.nt.c$Alanine1D),]
+
+# Remove samples
+data.nt.c <- filter (data.nt.c, !grepl("BY331",ID), !grepl("BY332",ID), !grepl("BY382",ID))
+
 #melt matrix and select columns related to metabolite concentrations
-data.nt.clean.melt <- melt(data.nt.clean)
-data.nt.clean.metabolites <- data.nt.clean.melt[grep("*1D", data.nt.clean.melt$variable), ]
+data.nt.c.melt <- melt(data.nt.c)
+data.nt.c.metabolites <- data.nt.c.melt[grep("*1D", data.nt.c.melt$variable), ]
 
 #plot
-metabolites.plot <- ggplot(data.nt.clean.metabolites, aes (x = variable, y = value))+
-  geom_boxplot( , outlier.shape = NA)+
-  geom_jitter(aes(color = gleason_grade), size = 1)+
-  geom_text(aes(label = ID), size = 2)
-  
-metabolites.plot + 
+ggplot(data.nt.c.metabolites, aes (x = variable, y = log(value))) +
+  geom_boxplot( , outlier.shape = NA) +
+  geom_jitter(aes(color = gleason_grade), size = 1) +
+  theme (axis.text.x = element_text(angle = 45, hjust = 1)) +
   ggtitle("Metabolite concentrations of treatment-naive prostate cancer tissues") +
   xlab("Metabolites") + 
-  ylab("Metabolite concentrations (mM/mg tissue)")
+  ylab("log(Metabolite concentrations (mM/mg tissue))")
+  
 ```
 
-Now there are no samples that are obvious outliers.
 
 For this analysis, we want to compare biopsy tissues that are benign (Gleason score < 6) and cancerous (Gleason score ≥ 6). Let's plot a histogram of the samples, sorted by gleason grade, to understand the distribution of the data.
 ```{r}
-hist <- ggplot(data.frame(data.nt.clean), aes(x=gleason_grade)) +
+hist <- ggplot(data.frame(data.nt.c), aes(x=gleason_grade)) +
   geom_bar()
 
 hist + ggtitle("Histogram of Predictor Variable") +
   xlab("Benign vs. malignant prostate cancer") + ylab("Sample Size")
 ```
 
-From the boxplot, there are two groups labeled "G4+3", indicating that there might be whitespace in one of the labels. We will use `str_trim` to remove the whitespace.
-```{r}
-data.nt.clean$gleason_grade <- str_trim(data.nt.clean$gleason_grade, side = c("both"))
 
-#plot
-hist <- ggplot(data.frame(data.nt.clean), aes(x=gleason_grade)) +
+The majority of samples (~70%) are benign, 17% of samples have a Gleason grade of 3+3 and are considered "low grade" tumors, and the other ~13% of samples are considered malignant or "high grade" tumors. From the boxplot, there are two groups labeled "G4+3", indicating an issue with labeling in the initial datatset. We will use `str_trim` to remove any whitespace in `gleason_grade`. 
+```{r}
+# remove whitespace
+data.nt.c$gleason_grade <- str_trim(data.nt.c$gleason_grade, side = c("both"))
+
+# plot
+hist <- ggplot(data.frame(data.nt.c), aes(x=gleason_grade)) +
   geom_bar() +
   geom_text(stat = 'count', aes(label = ..count..), vjust=-1)
 
@@ -137,101 +153,36 @@ hist +
   ylim(0, 150)
 
 ```
-The majority of samples (~70%) are benign, 17% of samples have a Gleason grade of 3+3 and are considered "low grade" tumors, and the other ~13% of samples are considered malignant or "high grade" tumors. Since we are only interested in comparing benign versus malignant tumors, let's combine all of the low grade and high grade tumors as "Cancer".
-```{r}
-data.nt.clean$gleason_grade
-data.nt.clean$gleason_grade %>%
-  str_replace_all(c("G3+3", "G3+4", "G4+3", "G4+4"), c("Cancer", "Cancer", "Cancer", "Cancer"))
-
-# version 1
-newgleason <- data.nt.clean$gleason_grade
-newgleason[grep("\\+", newgleason)] <- "Cancer"
-data.nt.clean$newgleason <- newgleason
-
-# version 2
-data.nt.clean <- data.nt.clean %>% mutate (newgleason = str_replace_all(gleason_grade, "G3\\+3|G3\\+4|G4\\+3|G4\\+4", "Cancer"))
-data.nt.clean$newgleason
-
-```
-
-
-
-For cancerous tissues, we only want to include tissues with > 5% cancer. To do this, the feature pertaining to %cancer needs to be converted from 'character' to 'numeric'.
-```{r}
-
-
-#converting cancer variable from character to numeric
-sapply(data.nt, class)
-data.nt.clean$cancer <- as.numeric(gsub("[\\%,]", "", data.nt.clean$cancer))
-sapply(data.nt.clean, class)
-
-#filtering for cancer tissues
-cancer <- filter(data.nt.clean, gleason_grade != "Benign", cancer >= 5)
-cancer.melt <-melt(cancer)
-cancer.metabolites <- cancer.melt[grep("*1D", cancer.melt$variable), ]
-```
-
-
-Here is the data for benign tissues.
-```{r}
-benign <- filter(data.nt.clean, gleason_grade == "Benign")
-benign.melt <-melt(benign)
-benign.metabolites <- benign.melt[grep("*1D", benign.melt$variable), ]
-```
-
-Here are the average values of each feature for benign prostate cancer biopsies.
-```{r}
-benign.melt %>% group_by(variable) %>% summarize (mean_signal_value = mean(value, na.rm = TRUE))
-```
-
-And a average summary of cancer samples
-```{r}
-cancer.melt %>% group_by(variable) %>% summarize (mean_signal_value = mean(value, na.rm = TRUE))
-```
 
 
 ## Statistical Analysis
-### Principal Components Regression
+### Correlation matrix
 
-
-
-
+For this analysis, samples with a Gleason score ≥ 6 will be labeled as "cancer". First, let's look at the correlation between the predictor variables (metabolite concentrations) and outcome (benign vs. malignant). The strongest predictors of tumor malignancy are: GPC1D, Lactate 1D, Alanine 1D, and Choline 1D. The overall correlation between predictor variables is low. However, there are some metabolites that are strongly correlated. This is expected since many metabolites are interconnectedor and therefore regulated by the same metabolic pathways.
 ```{r}
+# Covert to classification to numerical
+data.nt.c$Class <- as.integer(data.nt.c$gleason_grade != "Benign") # 0 = Benign; 1 = Cancer
+
+#remove nonnumerical features
+data.nt.c.metabolites <- select(data.nt.c, -(ID:gleason_grade))
+
+# make a correlation matrix for all of your predictor variables 
+# tells us how predictor variables correlate with your outcome as well as how they correlate with each other and point out multicollinearity
+correlation = cor(data.nt.c.metabolites)
+par(mfrow = c(1,1))
+barplot(correlation[18,-c(18)], main = "Correlation of predictor variables with response variable", las = 2)
+
+#plot correlation matrix
+corrplot(correlation, type="lower", order="hclust", tl.col="black", tl.srt=45)
 
 ```
 
 
-### k-Nearest Neighbors
-We will perform classification and prediction of benign vs. malignant prostate cancer using k-Nearest Neighbors (k-NN). This is a supervised algorithm which requires a labeled test set.  
+### Prediction using k-Nearest Neighbors
 
-First, we will split our dataset into train and test sets using `sample`
+We will perform prediction of malignancy using k-Nearest Neighbors (k-NN). In brief, k-NN performs prediction by minimiznig the distance between samples. This is a supervised algorithm which requires a labeled test set. Before using kNN for prediction, the optimal number of nearest neighbors, or "k", will be determined using a 10-fold cross validation. This method splits the training dataset into 10 groups of equal size. One group is subsetted to "test" the model while the other k-1 groups are used to "train" the model. This is then repeated 10 times.  Here, functions for cross-validation and prediction using k-NN were written using base R.
 ```{r}
-### Reading in data and separating training set from testing set ###
-
-#Set aside a random sample for VERIFICATION DATA.
-testvector = sample (1:dim(data.nt.clean)[1], 198, replace = FALSE)
-
-#Record which indicies were used for test data.
-write.csv (testvector, "testvector.txt", row.names = F)
-
-#Extract the class of the tumor (benign vs. malignant), label as Ytest and Ytrain.
-Ytest = data.nt.clean[testvector, 2]
-Ytrain = data.nt.clean[-testvector, 2]
-
-#Take the X-values.
-Xtest = data.nt.clean[testvector, -1]
-Xtrain = data.nt.clean[-testvector, -1]
-
-#Write all to csv files.
-write.csv( Xtest, "Xteststand.txt", row.names = F)
-write.csv( Xtrain, "Xtrainstand.txt", row.names = F)
-write.csv( Ytest, "Ytest.txt", row.names = F)
-write.csv( Ytrain, "Ytrain.txt", row.names = F)
-
-```
-
-Read in classification and cross-validation functions for k-NN 
-```{r}
+# knn function written using base R
 knnk <- function(klist,Xtrain,Ytrain,Xtest) {
   # k-nearest neighbors classification
   # 
@@ -265,8 +216,8 @@ knnk <- function(klist,Xtrain,Ytrain,Xtest) {
     # Make prediction using majority vote of the k nearest neighbors
     for (ik in 1:length(klist)) {
       p.test[tst,ik] <- mean(Ytrain[ord[1:klist[ik]]])
-      p.test[p.test < 3] <- 2
-      p.test[p.test > 3] <- 4
+      p.test[p.test < 0.5] <- 0 # p.test threshold can be optimized
+      p.test[p.test > 0.5] <- 1 # p.test threshold can be optimized
     }
   }
   
@@ -298,18 +249,23 @@ knnk.cv <- function(klist,Xtrain,Ytrain,nfolds) {
 }
 ```
 
-Let's perform a 10-Fold Cross Validation using k-NN
+
+First, we will split our dataset into train and test sets using `sample_frac`.
 ```{r}
-#Create training and test sets
-Xtrain = Xtrain[,-c(1)]
-Xtest = Xtest[,-c(1)]
+# split using dplyr
+train <- data.nt.c %>% sample_frac(.70)
+test  <- anti_join(data.nt.c, train, by = 'ID')
 
-#Read in the data.
-Xtrain = data.matrix(read.table ("Xtrainstand.txt", header = T, sep = ","))
-Ytrain = data.matrix(read.table ("Ytrain.txt", header = T, sep = ","))[,1]
-Xtest = data.matrix(read.table ("Xteststand.txt", header = T, sep = ","))
-Ytest = data.matrix(read.table ("Ytest.txt", header = T, sep = ","))[,1]
+Xtrain <- select(train, contains("1D"))
+Xtest <- select(test, contains("1D"))
 
+Ytrain <- train$Class
+Ytest <- test$Class
+```
+
+
+Now perform a 10-Fold Cross Validation using `kNNk.cv` on the train dataset.
+```{r}
 #Make predictions by kNN
 klist = c(1:9) # we test all values of k
 nfolds = 10 # we make 10-fold cross-validation
@@ -325,17 +281,35 @@ MCerror
 # Plot misclassification error as a function of k
 plot(klist, MCerror, main="Misclassification Error Rate for each k", xlab="k", ylab="Misclassification Error")
 
-# Use k with lowest error; k=3 had lowest misclassification error
-final.k = 3
+# Use k with lowest error; k = 1 and 5 had lowest misclassification error
+final.k = 5
 ```
 
 
+Now let's test our model using the test dataset. 
 ```{r}
+predicted.test = knnk(final.k,Xtrain,Ytrain,Xtest)
 
+#histogram of dist. of scores
+PredValues = c(sum(predicted.test == 0), sum(predicted.test == 1))
+TrueValues =c(sum(Ytest == 0), sum(Ytest == 1))
+
+par(mfrow= c(1,2))
+predicted.testfactor <- as.factor(predicted.test)
+plot(predicted.testfactor, main = "Distribution of predicted test values \nfor KNN, K=3", xlab = "Percentage", ylab = "Frequency")
+text(predicted.testfactor, labels = PredValues, pos = 3)
+Ytestfactor <- as.factor(Ytest)
+plot(Ytestfactor, main = "Distribution of Actual Values \nfor test data", xlab = "Percentage", ylab = "Frequency")
+text(Ytestfactor, labels = TrueValues, pos = 3)
 ```
 
 
-
-
-
-
+Here, `confusionMatrix` indicates that the accuracy of our model was 78%. Sensitivity was 0.47 and specificity was 0.89.
+```{r}
+################################################################################
+#Evaluate Model Performance
+################################################################################
+library(caret)
+Ytest <- as.factor(Ytest)
+confusionMatrix(predicted.testfactor, Ytest, positive='1') 
+```
