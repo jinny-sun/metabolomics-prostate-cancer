@@ -12,7 +12,7 @@ output:
 
 Prostate cancer is the most commonly diagnosed non-cutaneous cancer in men and the second leading cause of cancer death. Due to over-diagnosis and over-treatment of indolent low-risk disease, active surveillance (AS) involving serial measurements of serum prostate-specific antigen (PSA) and biopsies as well as multiparametric MRI has been implemented in the clinic to monitor disease progression and reduce rates of over-treatment. A pressing need in the clinical management of patients with prostate cancer at the time of diagnosis is an accurate method for distinguishing aggressive, potentially lethal prostate cancer from indolent disease in individual patients in order to assess whether active surveillance is appropriate or aggressive treatment is needed. 
 
-The goal of this analysis is to identify metabolic biomarkers of prostate cancer using 1D 1H HR-MAS spectroscopy of biopsy tissues. This analysis has significant clinical impact by informing doctors which patients should remain under active surveillance or undergo treatment.
+The goal of this analysis is to identify metabolic biomarkers of prostate cancer using 1D 1H HR-MAS spectroscopy of fresh prostate tissue specimen. This analysis has significant clinical impact by informing doctors which patients should remain under active surveillance or undergo treatment.
 
 
 # Experiment Details
@@ -38,7 +38,7 @@ data = read.csv("ProstateHrmas.csv", header = T, stringsAsFactors = FALSE, fill 
 ## Load libraries
 
 Load the libraries required for this analysis.
-```{r}
+```{r message = F}
 library(tidyverse)
 library(reshape2)
 library(RColorBrewer)
@@ -56,7 +56,7 @@ This dataset of consists of 287 tissue samples (biopsies, post-surgical tissues,
 dim(data)
 data
 
-data.2 <- select(data, -(treatment_type:cancer))
+data.2 <- select(data, -(treatment_type:stroma_normal))
 data.2
 
 data.nt <- filter (data.2, treatment == "None", !grepl("*CC",ID))
@@ -136,13 +136,26 @@ hist + ggtitle("Histogram of Predictor Variable") +
 ```
 
 
-The majority of samples (~70%) are benign, 17% of samples have a Gleason grade of 3+3 and are considered "low grade" tumors, and the other ~13% of samples are considered malignant or "high grade" tumors. From the boxplot, there are two groups labeled "G4+3", indicating an issue with labeling in the initial datatset. We will use `str_trim` to remove any whitespace in `gleason_grade`. 
+The majority of samples (~70%) are benign, 17% of samples have a Gleason grade of 3+3 and are considered "low grade" tumors that should remain under active surveillance, and the other ~13% of samples are considered malignant or "high grade" tumors that should undergo treatment. From the boxplot, there are two groups labeled "G4+3", indicating an issue with labeling in the initial datatset. We will use `str_trim` to remove any whitespace in `gleason_grade`. Then we will combine the benign and G3+3 samples as "benign".
 ```{r}
 # remove whitespace
 data.nt.c$gleason_grade <- str_trim(data.nt.c$gleason_grade, side = c("both"))
 
+# combine G3+3 sample with benign samples.
+data.nt.c <- data.nt.c %>% mutate (class = str_replace_all(gleason_grade, "G3\\+3", "Benign"))
+data.nt.c <- data.nt.c %>% mutate (class = str_replace_all(class, "G3\\+4|G4\\+3|G4\\+4", "Cancer"))
+
+# Covert to classification to numerical
+data.nt.c$class <- as.integer(data.nt.c$gleason_grade != "Benign") # 0 = Benign; 1 = Cancer
+
+# converting cancer variable from character to numeric
+data.nt.c$cancer <- as.numeric(gsub("[\\%,]", "", data.nt.c$cancer))
+
+# filtering for malignant tissues that have < 5% cancer
+data.nt.c <- data.nt.c[!(data.nt.c$class == 1 & data.nt.c$cancer < 5),]
+
 # plot
-hist <- ggplot(data.frame(data.nt.c), aes(x=gleason_grade)) +
+hist <- ggplot(data.frame(data.nt.c), aes(x=class)) +
   geom_bar() +
   geom_text(stat = 'count', aes(label = ..count..), vjust=-1)
 
@@ -160,9 +173,6 @@ hist +
 
 For this analysis, samples with a Gleason score ≥ 6 will be labeled as "cancer". First, let's look at the correlation between the predictor variables (metabolite concentrations) and outcome (benign vs. malignant). The strongest predictors of tumor malignancy are: GPC1D, Lactate 1D, Alanine 1D, and Choline 1D. The overall correlation between predictor variables is low. However, there are some metabolites that are strongly correlated. This is expected since many metabolites are interconnectedor and therefore regulated by the same metabolic pathways.
 ```{r}
-# Covert to classification to numerical
-data.nt.c$Class <- as.integer(data.nt.c$gleason_grade != "Benign") # 0 = Benign; 1 = Cancer
-
 #remove nonnumerical features
 data.nt.c.metabolites <- select(data.nt.c, -(ID:gleason_grade))
 
@@ -207,7 +217,7 @@ knnk <- function(klist,Xtrain,Ytrain,Xtest) {
     # Compute distances to training instances
     for (trn in 1:n.train)
     {
-      dsq[trn] <- sum((Xtrain[trn,] - Xtest[tst,])^2)
+      dsq[trn] <- sqrt(sum((Xtrain[trn,] - Xtest[tst,])^2)) # Euclidean distance
     }
     
     # Sort distances from smallest to largest
@@ -259,8 +269,8 @@ test  <- anti_join(data.nt.c, train, by = 'ID')
 Xtrain <- select(train, contains("1D"))
 Xtest <- select(test, contains("1D"))
 
-Ytrain <- train$Class
-Ytest <- test$Class
+Ytrain <- train$class
+Ytest <- test$class
 ```
 
 
@@ -281,8 +291,9 @@ MCerror
 # Plot misclassification error as a function of k
 plot(klist, MCerror, main="Misclassification Error Rate for each k", xlab="k", ylab="Misclassification Error")
 
-# Use k with lowest error; k = 1 and 5 had lowest misclassification error
-final.k = 5
+# Use k with lowest misclassification error
+final.k = which.min(MCerror)
+final.k
 ```
 
 
@@ -304,12 +315,9 @@ text(Ytestfactor, labels = TrueValues, pos = 3)
 ```
 
 
-Here, `confusionMatrix` indicates that the accuracy of our model was 78%. Sensitivity was 0.47 and specificity was 0.89.
+Determine model performance by determining the accuracy, sensitivity, and specificity  using `confusionMatrix`.
 ```{r}
-################################################################################
-#Evaluate Model Performance
-################################################################################
 library(caret)
 Ytest <- as.factor(Ytest)
-confusionMatrix(predicted.testfactor, Ytest, positive='1') 
+confusionMatrix(predicted.testfactor, Ytest, positive='1')
 ```
