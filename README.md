@@ -1,6 +1,7 @@
 Metabolic profiling of prostate cancer biopsies using HR-MAS
 ================
 Jinny Sun
+
 1/29/2018
 
 # Introduction
@@ -73,7 +74,6 @@ Load the libraries required for this analysis.
 library(tidyverse)
 library(reshape2)
 library(RColorBrewer)
-
 library(lattice)
 library(corrplot)
 library(class)
@@ -565,8 +565,8 @@ for (i in 1:ncol(predicted.cv)) {
 MCerror
 ```
 
-    ## [1] 0.2444444 0.3851852 0.2222222 0.3629630 0.2740741 0.3333333 0.2814815
-    ## [8] 0.3407407 0.2888889
+    ## [1] 0.2370370 0.3777778 0.2296296 0.3333333 0.2888889 0.3407407 0.2592593
+    ## [8] 0.3407407 0.2814815
 
 ``` r
 # Plot misclassification error as a function of k
@@ -626,26 +626,26 @@ confusionMatrix(predicted.testfactor, Ytest, positive='1')
     ## 
     ##           Reference
     ## Prediction  0  1
-    ##          0 39 16
-    ##          1  1  2
+    ##          0 33 10
+    ##          1  8  7
     ##                                           
-    ##                Accuracy : 0.7069          
-    ##                  95% CI : (0.5727, 0.8191)
-    ##     No Information Rate : 0.6897          
-    ##     P-Value [Acc > NIR] : 0.450692        
+    ##                Accuracy : 0.6897          
+    ##                  95% CI : (0.5546, 0.8046)
+    ##     No Information Rate : 0.7069          
+    ##     P-Value [Acc > NIR] : 0.6731          
     ##                                           
-    ##                   Kappa : 0.1117          
+    ##                   Kappa : 0.2244          
     ##                                           
-    ##  Mcnemar's Test P-Value : 0.000685        
+    ##  Mcnemar's Test P-Value : 0.8137          
     ##                                           
-    ##             Sensitivity : 0.11111         
-    ##             Specificity : 0.97500         
-    ##          Pos Pred Value : 0.66667         
-    ##          Neg Pred Value : 0.70909         
-    ##              Prevalence : 0.31034         
-    ##          Detection Rate : 0.03448         
-    ##    Detection Prevalence : 0.05172         
-    ##       Balanced Accuracy : 0.54306         
+    ##             Sensitivity : 0.4118          
+    ##             Specificity : 0.8049          
+    ##          Pos Pred Value : 0.4667          
+    ##          Neg Pred Value : 0.7674          
+    ##              Prevalence : 0.2931          
+    ##          Detection Rate : 0.1207          
+    ##    Detection Prevalence : 0.2586          
+    ##       Balanced Accuracy : 0.6083          
     ##                                           
     ##        'Positive' Class : 1               
     ## 
